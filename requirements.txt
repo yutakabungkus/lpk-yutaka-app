@@ -1,5 +1,10 @@
-streamlit
+gspread
+google-auth
 pandas
-plotly
 altair
+plotly
+streamlit
+matplotlib
+numpy
 openpyxl
+reportlab
