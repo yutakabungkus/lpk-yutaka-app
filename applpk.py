@@ -103,13 +103,8 @@ def init_connection():
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive",
   ]
-  # Cek apakah dijalankan di laptop (ada file credentials.json) atau di web (Streamlit Secrets)
-  if os.path.exists("credentials.json"):
-    creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
-  else:
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    
+  # Membaca file credentials.json secara langsung dan aman
+  creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
   client = gspread.authorize(creds)
   return client
 
@@ -507,7 +502,7 @@ with st.sidebar:
   st.markdown("---")
   st.markdown(
       "<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA"
-      " REALTIME // v11.35</p>",
+      " REALTIME // v11.36</p>",
       unsafe_allow_html=True,
   )
 
