@@ -269,7 +269,7 @@ with st.sidebar:
   st.markdown("---")
   st.markdown(
       "<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA"
-      " REALTIME CSV // v3.2</p>",
+      " REALTIME CSV // v3.3</p>",
       unsafe_allow_html=True,
   )
 
@@ -306,7 +306,8 @@ if menu == "📊 Dashboard":
         df[col_chk] = "Semua"
     df_ui = df.fillna("Semua")
 
-    df["Parsed_Tanggal"] = pd.to_datetime(df["Tanggal"], errors="coerce")
+    # Konversi Tanggal dengan dayfirst=True agar format DD/MM/YYYY terbaca dengan tepat
+    df["Parsed_Tanggal"] = pd.to_datetime(df["Tanggal"], errors="coerce", dayfirst=True)
     min_date = df["Parsed_Tanggal"].min().date() if not df["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-01-01").date()
     max_date = df["Parsed_Tanggal"].max().date() if not df["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-12-31").date()
 
@@ -349,7 +350,7 @@ if menu == "📊 Dashboard":
       df_v = df_v[df_v["Sensei"].astype(str) == sel_sensei]
 
     if not ignore_date:
-      df_v["Parsed_Tanggal"] = pd.to_datetime(df_v["Parsed_Tanggal"], errors="coerce")
+      df_v["Parsed_Tanggal"] = pd.to_datetime(df_v["Tanggal"], errors="coerce", dayfirst=True)
       df_v = df_v[
           (df_v["Parsed_Tanggal"].dt.date >= start_date) & 
           (df_v["Parsed_Tanggal"].dt.date <= end_date)
@@ -373,7 +374,7 @@ if menu == "📊 Dashboard":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # URUTAN 1: RATA-RATA KELAS (DIPERBAIKI AGAR SEMUA KELAS MUNCUL TANPA TERLEWAT)
+    # URUTAN 1: RATA-RATA KELAS
     st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>1. 📊 Rata-rata Kelas (Target KKM: 90)</div>", unsafe_allow_html=True)
     
     df_chart_clean = df_v.copy()
@@ -602,7 +603,7 @@ elif menu == "📄 Raport":
       jk_val = jk_raw
       program_val = str(latest_data.get("Program", "Reguler"))
 
-      df_siswa["Parsed_Tanggal"] = pd.to_datetime(df_siswa["Tanggal"], errors="coerce")
+      df_siswa["Parsed_Tanggal"] = pd.to_datetime(df_siswa["Tanggal"], errors="coerce", dayfirst=True)
       min_date_s = df_siswa["Parsed_Tanggal"].min().date() if not df_siswa["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-07-13").date()
       max_date_s = df_siswa["Parsed_Tanggal"].max().date() if not df_siswa["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-08-05").date()
 
