@@ -1,10 +1,11 @@
+streamlit
 gspread
 google-auth
 pandas
 altair
 plotly
-streamlit
 matplotlib
 numpy
 openpyxl
 reportlab
+cryptography

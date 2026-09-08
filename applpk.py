@@ -103,8 +103,26 @@ def init_connection():
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive",
   ]
-  # Membaca file credentials.json secara langsung dan aman
-  creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+  
+  # Cek apakah dijalankan di lokal (file credentials.json tersedia di direktori)
+  if os.path.exists("credentials.json"):
+    creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+  else:
+    # Jika dijalankan di Streamlit Cloud (menggunakan st.secrets)
+    creds_dict = {
+        "type": "service_account",
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
+        "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+        "private_key": st.secrets["gcp_service_account"]["private_key"].replace("\\n", "\n"),
+        "client_email": st.secrets["gcp_service_account"]["client_email"],
+        "client_id": st.secrets["gcp_service_account"]["client_id"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+    }
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    
   client = gspread.authorize(creds)
   return client
 
@@ -502,7 +520,7 @@ with st.sidebar:
   st.markdown("---")
   st.markdown(
       "<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA"
-      " REALTIME // v11.36</p>",
+      " REALTIME // v11.40</p>",
       unsafe_allow_html=True,
   )
 
