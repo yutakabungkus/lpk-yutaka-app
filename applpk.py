@@ -1,7 +1,5 @@
 import io
 import os
-import gspread
-from google.oauth2.service_account import Credentials
 import pandas as pd
 import altair as alt
 import plotly.express as px
@@ -18,7 +16,7 @@ from reportlab.lib import colors
 
 # ================= KONFIGURASI HALAMAN =================
 st.set_page_config(
-    page_title="LPK Yutaka Education Center - Local Sheets",
+    page_title="LPK Yutaka Education Center - Realtime CSV",
     page_icon="🌸",
     layout="wide",
 )
@@ -93,97 +91,51 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ID SPREADSHEET UTAMA ANDA
-SPREADSHEET_ID = "1BaF_bDqgtKqLr9YF8P-DLOoSbN8ZO51fdfikaaFkLi8"
+# LINK CSV GOOGLE SHEETS ANDA
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?output=csv"
 
-
-@st.cache_resource
-def init_connection():
-  scope = [
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/drive",
-  ]
-  # Membaca file credentials.json fisik langsung dari folder lokal
-  creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
-  client = gspread.authorize(creds)
-  return client
-
-
-def load_data_from_sheets():
+@st.cache_data(ttl=30)
+def load_data_from_csv():
   try:
-    client = init_connection()
-    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    df_loaded = pd.read_csv(CSV_URL)
+
+    nis_col_found = None
+    for col in df_loaded.columns:
+      c_low = col.strip().lower()
+      if c_low in ["nis", "nis siswa", "id siswa"]:
+        nis_col_found = col
+        break
     
-    sheet1 = spreadsheet.get_worksheet(0)
-    rows1 = sheet1.get_all_values()
-    df_loaded = pd.DataFrame()
-    if rows1 and len(rows1) > 1:
-      df_loaded = pd.DataFrame(rows1[1:], columns=rows1[0])
-      
-      nis_col_found = None
-      for col in df_loaded.columns:
-        c_low = col.strip().lower()
-        if c_low in ["nis", "nis siswa", "id siswa"]:
-          nis_col_found = col
-          break
-      
-      if nis_col_found and nis_col_found != "NIS":
-        df_loaded.rename(columns={nis_col_found: "NIS"}, inplace=True)
-      
-      if "NIS" in df_loaded.columns:
-        df_loaded["NIS"] = df_loaded["NIS"].astype(str).str.strip()
-      else:
-        df_loaded["NIS"] = "-"
+    if nis_col_found and nis_col_found != "NIS":
+      df_loaded.rename(columns={nis_col_found: "NIS"}, inplace=True)
+    
+    if "NIS" in df_loaded.columns:
+      df_loaded["NIS"] = df_loaded["NIS"].astype(str).str.strip()
+    else:
+      df_loaded["NIS"] = "-"
 
-      skip_cols = [
-          "Tanggal", "Kelas", "NIS", "NIS Siswa", "Nama", "Jenis Kelamin", "Program", 
-          "Bab", "Sub bab", "Sensei", "Keterangan", "Disiplin", 
-          "Sopan santun", "Kebersihan (5S)", "Kerjasama",
-          "Safety", "Persiapan kerja", "Penggunaan alat", "Teknik kerja", "Komunikasi tim", "Sikap kerja"
-      ]
-      for col in df_loaded.columns:
-        if col not in skip_cols:
-          df_loaded[col] = pd.to_numeric(df_loaded[col], errors="coerce")
+    skip_cols = [
+        "Tanggal", "Kelas", "NIS", "NIS Siswa", "Nama", "Jenis Kelamin", "Program", 
+        "Bab", "Sub bab", "Sensei", "Keterangan", "Disiplin", 
+        "Sopan santun", "Kebersihan (5S)", "Kerjasama",
+        "Safety", "Persiapan kerja", "Penggunaan alat", "Teknik kerja", "Komunikasi tim", "Sikap kerja"
+    ]
+    for col in df_loaded.columns:
+      if col not in skip_cols:
+        df_loaded[col] = pd.to_numeric(df_loaded[col], errors="coerce")
 
-    df_catatan_sheet2 = pd.DataFrame()
-    try:
-      sheet2 = spreadsheet.get_worksheet(1)
-      rows2 = sheet2.get_all_values()
-      if rows2 and len(rows2) > 1:
-        df_catatan_sheet2 = pd.DataFrame(rows2[1:], columns=rows2[0])
-    except Exception:
-      pass
-
-    return df_loaded, df_catatan_sheet2
+    return df_loaded, pd.DataFrame()
   except Exception as e:
-    st.error(f"Gagal memuat data: {e}")
+    st.warning(f"⚠️ Belum terhubung ke Link CSV Google Sheets. Detail: {e}")
     return pd.DataFrame(), pd.DataFrame()
 
-
-def save_row_to_sheets(new_row_dict):
-  try:
-    client = init_connection()
-    spreadsheet = client.open_by_key(SPREADSHEET_ID)
-    sheet = spreadsheet.get_worksheet(0)
-    header = sheet.row_values(1)
-    row_values = [str(new_row_dict.get(col, "")) for col in header]
-    sheet.append_row(row_values)
-    st.cache_resource.clear()
-    return True
-  except Exception as e:
-    st.error(f"Gagal menyimpan ke Google Sheets: {e}")
-    return False
-
-
-df, df_sheet2 = load_data_from_sheets()
-
+df, df_sheet2 = load_data_from_csv()
 
 def to_excel_bytes(dataframe):
   output = io.BytesIO()
   with pd.ExcelWriter(output, engine="openpyxl") as writer:
     dataframe.to_excel(writer, index=False, sheet_name="Data_LPK")
   return output.getvalue()
-
 
 def huruf_ke_angka(val):
   if pd.isna(val) or str(val).strip() == "":
@@ -203,7 +155,6 @@ def huruf_ke_angka(val):
     except:
       return 80.0
 
-
 def angka_ke_abjad(val):
   if pd.isna(val) or val == 0:
     return "D"
@@ -215,7 +166,6 @@ def angka_ke_abjad(val):
     return "C"
   else:
     return "D"
-
 
 def get_catatan_perilaku_from_sheet2(aspect_title, predikat, df_s2):
   p = str(predikat).strip().upper()
@@ -254,7 +204,6 @@ def get_catatan_perilaku_from_sheet2(aspect_title, predikat, df_s2):
   
   return f"Memiliki {aspect_title} yang baik dan patuh pada aturan."
 
-
 def get_clean_keterangan(subtest, val):
   if val >= 85:
     return f"Sangat baik dalam penguasaan materi {subtest} serta menunjukkan performa tingkat tinggi."
@@ -265,7 +214,6 @@ def get_clean_keterangan(subtest, val):
   else:
     return f"Memerlukan perhatian khusus dan bimbingan intensif pada materi {subtest}."
 
-
 def get_fisik_keterangan(item_fisik, val):
   if val >= 85:
     return f"Performa sangat prima dan melampaui target standar pada {item_fisik}."
@@ -275,7 +223,6 @@ def get_fisik_keterangan(item_fisik, val):
     return f"Kemampuan fisik cukup pada {item_fisik}, perlu ditingkatkan daya tahannya."
   else:
     return f"Memerlukan latihan fisik tambahan dan peningkatan stamina pada {item_fisik}."
-
 
 def generate_radar_chart_image(akad_data, title="Grafik Kompetensi Akademik"):
   labels = [item['sub'].split('(')[0].strip() for item in akad_data]
@@ -302,7 +249,6 @@ def generate_radar_chart_image(akad_data, title="Grafik Kompetensi Akademik"):
   plt.close(fig)
   img_buf.seek(0)
   return img_buf
-
 
 def generate_bar_chart_image(fisik_data, title="Grafik Kemampuan Fisik"):
   labels = [item['sub'].split('(')[0].strip()[:12] for item in fisik_data]
@@ -332,7 +278,6 @@ def generate_bar_chart_image(fisik_data, title="Grafik Kemampuan Fisik"):
   plt.close(fig)
   img_buf.seek(0)
   return img_buf
-
 
 def generate_pdf_2_pages(nama, nis, kelas, jk, program_val, periode, akad_data, sikap_data, fisik_data, hadir_vals, catatan_akad, catatan_fisik, kesimpulan):
   buffer = io.BytesIO()
@@ -495,14 +440,14 @@ with st.sidebar:
       st.session_state.active_menu = menu_key
       st.rerun()
 
-  if st.button("🔄 Refresh Data Sheets", use_container_width=True):
-    st.cache_resource.clear()
+  if st.button("🔄 Refresh Data Google Sheets", use_container_width=True):
+    st.cache_data.clear()
     st.rerun()
 
   st.markdown("---")
   st.markdown(
       "<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA"
-      " REALTIME // LOCAL v1.0</p>",
+      " REALTIME CSV // v1.0</p>",
       unsafe_allow_html=True,
   )
 
@@ -574,7 +519,7 @@ if menu == "📊 Dashboard":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 1. RATA-RATA SEMUA KELAS (DIAMBIL DARI POS TEST SEMUA SUB BAB)
+    # 1. RATA-RATA SEMUA KELAS
     st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>1. 📊 Rata-rata Semua Kelas (Target KKM: 90)</div>", unsafe_allow_html=True)
     
     main_score_col = "Pos Test" if "Pos Test" in df.columns else (score_col if score_col in df.columns else df.columns[-1])
@@ -598,7 +543,7 @@ if menu == "📊 Dashboard":
 
     st.markdown("---")
 
-    # 2. KEMAMPUAN AKADEMIK BERDASARKAN SUB TES (GRAFIK RADAR DENGAN FILTER KATA KUNCI TERTENTU)
+    # 2. KEMAMPUAN AKADEMIK BERDASARKAN SUB TES (GRAFIK RADAR)
     st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>2. 📚 Kemampuan Akademik Berdasarkan Sub Tes (Grafik Radar)</div>", unsafe_allow_html=True)
     
     allowed_sub_keywords = ["言葉", "文法", "漢字", "聴解", "読解", "読む", "書く", "kotoba", "bunpou", "kanji", "choukai", "dokkai"]
@@ -613,11 +558,11 @@ if menu == "📊 Dashboard":
       fig_radar_dash.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
       st.plotly_chart(fig_radar_dash, use_container_width=True)
     else:
-      st.info("Belum ada data sub tes akademik dengan kata kunci (言葉、文法、漢字、聴解、読解、読む、書く) yang tercatat.")
+      st.info("Belum ada data sub tes akademik dengan kata kunci yang tercatat.")
 
     st.markdown("---")
 
-    # 3. ATTITUDE SISWA BERDASARKAN JUMLAH SISWA (PREDIKAT A, B, C, D — MENGIKUTI FILTER `df_v`)
+    # 3. ATTITUDE SISWA
     st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>3. 🌟 Attitude / Sikap Siswa Berdasarkan Jumlah Siswa (Predikat A, B, C, D)</div>", unsafe_allow_html=True)
     
     attitude_cols = [c for c in ["Disiplin", "Sopan santun", "Kebersihan (5S)", "Kerjasama"] if c in df_v.columns]
@@ -661,152 +606,12 @@ if menu == "📊 Dashboard":
     else:
       st.info("Kolom sikap atau nama siswa belum terdeteksi di data sheets.")
 
-    st.markdown("---")
-
-    # 4. SKILL / KEMAMPUAN FISIK SISWA
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>4. 🏃 Skill / Kemampuan Fisik Siswa</div>", unsafe_allow_html=True)
-    
-    fisik_keywords = ["lari", "push", "sit", "squat", "plank", "farmer", "beban", "fisik", "体力"]
-    df_fisik_all = df_v[df_v["Sub bab"].astype(str).str.lower().apply(lambda x: any(k in x.lower() for k in fisik_keywords))]
-    
-    if df_fisik_all.empty:
-      skip_cols_check = ["Tanggal", "Kelas", "NIS", "NIS Siswa", "Nama", "Jenis Kelamin", "Program", "Bab", "Sub bab", "Sensei", "Keterangan", "Disiplin", "Sopan santun", "Kebersihan (5S)", "Kerjasama", "Pos Test", "Safety", "Persiapan kerja", "Penggunaan alat", "Teknik kerja", "Komunikasi tim", "Sikap kerja"]
-      potential_fisik_cols = [c for c in df_v.columns if c not in skip_cols_check and pd.api.types.is_numeric_dtype(df_v[c])]
-      if potential_fisik_cols:
-        fisik_summary = df_v[potential_fisik_cols].mean().reset_index()
-        fisik_summary.columns = ["Item Tes Fisik", "Rata-rata Nilai"]
-      else:
-        fisik_summary = pd.DataFrame(columns=["Item Tes Fisik", "Rata-rata Nilai"])
-    else:
-      fisik_summary = df_fisik_all.groupby("Sub bab")[score_col].mean().reset_index()
-      fisik_summary.columns = ["Item Tes Fisik", "Rata-rata Nilai"]
-
-    if not fisik_summary.empty:
-      fig_skil = px.bar(fisik_summary, x="Item Tes Fisik", y="Rata-rata Nilai", text="Rata-rata Nilai", color="Rata-rata Nilai", color_continuous_scale="Purples", range_y=[0, 105])
-      fig_skil.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-      fig_skil.update_layout(height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-15)
-      st.plotly_chart(fig_skil, use_container_width=True)
-    else:
-      st.info("Data rekapitulasi tes fisik belum tersedia.")
-
-    st.markdown("---")
-
-    # 5. KEMAMPUAN SKILL SISWA (GRAFIK RADAR)
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>5. 🛠️ Kemampuan Skill Siswa (Grafik Radar / Polar Chart)</div>", unsafe_allow_html=True)
-    
-    skill_cols_target = ["Safety", "Persiapan kerja", "Penggunaan alat", "Teknik kerja", "Komunikasi tim", "Sikap kerja"]
-    found_skill_cols = [c for c in skill_cols_target if c in df_v.columns]
-
-    if found_skill_cols:
-      skill_data_list = []
-      for sc in found_skill_cols:
-        numeric_vals = []
-        for val in df_v[sc].dropna():
-          val_str = str(val).strip().upper()
-          if val_str in ["A", "B", "C", "D"]:
-            numeric_vals.append(huruf_ke_angka(val_str))
-          else:
-            try:
-              numeric_vals.append(float(val))
-            except:
-              pass
-        avg_sc = sum(numeric_vals) / len(numeric_vals) if numeric_vals else 0.0
-        skill_data_list.append({"Aspek Skill": sc, "Nilai": avg_sc})
-
-      df_skill_summary = pd.DataFrame(skill_data_list)
-      if not df_skill_summary.empty:
-        fig_skill_radar = px.line_polar(df_skill_summary, r="Nilai", theta="Aspek Skill", line_close=True, range_r=[0, 100])
-        fig_skill_radar.update_traces(fill="toself", line_color="#0d9488", marker_color="#14b8a6", fillcolor="rgba(13, 148, 136, 0.2)", text=df_skill_summary["Nilai"].apply(lambda x: f"{x:.1f}"), mode="lines+markers+text")
-        fig_skill_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_skill_radar, use_container_width=True)
-      else:
-        st.info("Data nilai pada aspek skill belum berisi angka/huruf valid.")
-    else:
-      st.info("Kolom skill (Safety, Persiapan kerja, Penggunaan alat, Teknik kerja, Komunikasi tim, Sikap kerja) belum terdeteksi di Sheets utama.")
-
 # ================= MENU 2: INPUT NILAI =================
 elif menu == "✍️ Input":
   st.markdown("<div class='main-heading'>FORM INPUT NILAI & KOMPETENSI</div>", unsafe_allow_html=True)
-  
-  raw_senseis = df["Sensei"].dropna().astype(str).unique().tolist() if "Sensei" in df.columns and not df.empty else ["Sensei A"]
-  existing_senseis = [s for s in raw_senseis if s.strip().upper() != "REXSY"]
-  if not existing_senseis:
-    existing_senseis = ["Sensei A"]
+  st.info("💡 **Informasi**: Karena menggunakan mode Publikasi CSV Link, Anda dapat langsung menginput data baru secara *realtime* melalui tabel Google Spreadsheet Anda di browser. Setelah diinput di Google Sheets, klik tombol **'Refresh Data Google Sheets'** di sidebar sebelah kiri.")
 
-  with st.form("form_in", clear_on_submit=True):
-    tanggal = st.date_input("Tanggal Penilaian")
-    kelas = st.selectbox("Kelas", ["JFT", "N5L1", "N5L2", "N4L1", "N4L2", "PCL"])
-    program = st.selectbox("Program", ["Magang", "Reguler"])
-    nis_siswa = st.text_input("NIS Siswa")
-    nama_siswa = st.text_input("Nama Lengkap Peserta")
-    jk_siswa = st.selectbox("Jenis Kelamin", ["Laki-laki", "Perempuan"])
-    bab = st.text_input("Bab / Materi")
-    
-    kategori_input = st.selectbox("Kategori Penilaian", ["Akademik (Bahasa)", "Fisik (体力評価)", "Sikap & Karakter (生活態度)", "Skill Kerja (実習スキル)"])
-    
-    if kategori_input == "Akademik (Bahasa)":
-      sub_bab = st.selectbox("Mata Pelajaran Bahasa", [
-          "Huruf & Kosakata (文字・語彙)", 
-          "Tata Bahasa (文法)", 
-          "Membaca (読解)", 
-          "Mendengar (聴解)", 
-          "Berbicara (会話)",
-          "Kotoba", 
-          "Kanji"
-      ])
-    elif kategori_input == "Fisik (体力評価)":
-      sub_bab = st.selectbox("Mata Pelajaran Fisik", [
-          "LARI (3KM 15MENIT)", 
-          "PUSH UP (55X 1MENIT)", 
-          "SIT UP (60X1MENIT)", 
-          "SQUAT (70X1MENIT)", 
-          "PLANK (4MENIT)", 
-          "FARMER WALK (25kg, 30 METER)", 
-          "ANGKAT BEBAN (35kg, 50X)"
-      ])
-    elif kategori_input == "Sikap & Karakter (生活態度)":
-      sub_bab = st.selectbox("Aspek Sikap", [
-          "Disiplin", 
-          "Sopan santun", 
-          "Kebersihan (5S)", 
-          "Kerjasama"
-      ])
-    else:
-      sub_bab = st.selectbox("Aspek Skill Kerja", [
-          "Safety", 
-          "Persiapan kerja", 
-          "Penggunaan alat", 
-          "Teknik kerja", 
-          "Komunikasi tim", 
-          "Sikap kerja"
-      ])
-
-    sensei = st.selectbox("Nama Sensei / Pengajar", existing_senseis)
-    pos_test = st.number_input("Nilai / Hasil Tes", 0.0, 200.0, 80.0, step=0.1)
-    keterangan = st.text_area("Keterangan / Catatan Evaluasi")
-
-    if st.form_submit_button("💾 SIMPAN DATA KE GOOGLE SHEETS", use_container_width=True):
-      if nama_siswa.strip() == "":
-        st.error("⚠️ Nama lengkap peserta wajib diisi!")
-      else:
-        new_row_dict = {
-            "Tanggal": str(tanggal),
-            "Kelas": kelas,
-            "NIS": nis_siswa.strip(),
-            "Nama": nama_siswa,
-            "Jenis Kelamin": jk_siswa,
-            "Program": program,
-            "Bab": bab,
-            "Sub bab": sub_bab,
-            "Sensei": sensei,
-            "Pos Test": pos_test,
-            "Keterangan": keterangan,
-        }
-        if save_row_to_sheets(new_row_dict):
-          st.success("🎉 Data berhasil disimpan secara realtime!")
-          st.rerun()
-
-# ================= MENU 3: RAPORT SISWA & PREVIEW CETAK (DIKUNCI KETAT) =================
+# ================= MENU 3: RAPORT SISWA =================
 elif menu == "📄 Raport":
   st.markdown("<div class='main-heading'>RAPORT RESMI LPK YUTAKA (評価報告書 & 体力評価)</div>", unsafe_allow_html=True)
 
@@ -1132,23 +937,6 @@ elif menu == "📄 Raport":
         
         components.html(html_raport, height=1350, scrolling=True)
 
-        st.markdown("<br><h4>📊 Grafik Kompetensi Akademik Siswa</h4>", unsafe_allow_html=True)
-        df_radar_plot = pd.DataFrame(locked_akad_subs, columns=["Aspek", "Nilai"])
-        if not df_radar_plot.empty:
-          fig_radar_sis = px.line_polar(df_radar_plot, r="Nilai", theta="Aspek", line_close=True, range_r=[0, 100])
-          fig_radar_sis.update_traces(fill="toself", line_color="#be185d", marker_color="#fb7185", fillcolor="rgba(190, 24, 93, 0.2)", text=df_radar_plot["Nilai"].apply(lambda x: f"{x:.1f}"), mode="lines+markers+text")
-          fig_radar_sis.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-          st.plotly_chart(fig_radar_sis, use_container_width=True)
-
-        st.markdown("<br><h4>📊 Grafik Kemampuan Fisik Siswa (Kolom Vertikal)</h4>", unsafe_allow_html=True)
-        df_fisik_plot = pd.DataFrame(pdf_fisik_data)[["sub", "val"]]
-        df_fisik_plot.columns = ["Item Fisik", "Nilai"]
-        if not df_fisik_plot.empty:
-          fig_bar_sis = px.bar(df_fisik_plot, x="Item Fisik", y="Nilai", text="Nilai", color="Nilai", color_continuous_scale="Reds", range_y=[0, 105])
-          fig_bar_sis.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-          fig_bar_sis.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-20)
-          st.plotly_chart(fig_bar_sis, use_container_width=True)
-
         pdf_bytes = generate_pdf_2_pages(
             nama=pilih_nama,
             nis=nis_val,
@@ -1177,7 +965,7 @@ elif menu == "📄 Raport":
 elif menu == "📂 Database":
   st.markdown("<div class='main-heading'>DATABASE PESERTA LPK YUTAKA</div>", unsafe_allow_html=True)
   if not df.empty:
-    st.markdown("<p style='font-size:12px; color:#64748b;'>Menampilkan seluruh rekam data nilai dan NIS dari Google Sheets utama.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:12px; color:#64748b;'>Menampilkan seluruh rekam data nilai dari Google Sheets.</p>", unsafe_allow_html=True)
     st.dataframe(df, use_container_width=True)
 
 # ================= MENU 5: UPLOAD / UNDUH =================
@@ -1185,9 +973,9 @@ elif menu == "📤 Upload/Unduh":
   st.markdown("<div class='main-heading'>UPLOAD & DOWNLOAD DATA</div>", unsafe_allow_html=True)
   if not df.empty:
     st.download_button(
-        label="📥 DOWNLOAD REKAP LENGKAP (EXCEL) DENGAN NIS",
+        label="📥 DOWNLOAD REKAP LENGKAP (EXCEL)",
         data=to_excel_bytes(df),
-        file_name="laporan_lpk_yutaka_lengkap_dengan_nis.xlsx",
+        file_name="laporan_lpk_yutaka_lengkap.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
