@@ -5,18 +5,13 @@ import altair as alt
 import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
+import requests
 
 # Pastikan matplotlib menggunakan backend 'Agg'
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-
-# Import ReportLab untuk Export PDF 2 Lembar Resmi
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
 
 # ================= KONFIGURASI HALAMAN =================
 st.set_page_config(
@@ -30,7 +25,7 @@ st.markdown(
     <style>
         .stApp {
             background-image: linear-gradient(rgba(255, 245, 247, 0.92), rgba(253, 242, 244, 0.92)), 
-                              url('https://images.unsplash.com/photo-1522383225653-ed111181a951?auto=format&fit=crop&w=2000&q=80');
+                            url('https://images.unsplash.com/photo-1522383225653-ed111181a951?auto=format&fit=crop&w=2000&q=80');
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -95,784 +90,514 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# LINK CSV GOOGLE SHEETS UTAMA YANG AMAN DAN VALID
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?output=csv"
+# ================= URL GOOGLE SHEETS PER TAB SPESIFIK =================
+URL_AKADEMIK = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=2089137159&single=true&output=csv"
+URL_SKILL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=1757021272&single=true&output=csv"
+URL_FISIK = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=584979880&single=true&output=csv"
+URL_JFT = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=1299299093&single=true&output=csv"
+URL_RAPORT = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=895668861&single=true&output=csv"
+URL_KATEGORI = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTY21UPg0GRdL5tHy-mPc-xPR7ZHdNz3o_qFnl7QVA5mMC0-wQJOb55niQe1_M1d6kT44wKXsFDEzVw/pub?gid=1122353673&single=true&output=csv"
 
-@st.cache_data(ttl=30)
-def load_data_from_csv():
-  try:
-    df_loaded = pd.read_csv(CSV_URL)
-    
-    df_s2 = df_loaded.copy()
-    df_skill = df_loaded.copy()
-    df_fisik = df_loaded.copy()
+@st.cache_data(ttl=10)
+def load_sheet_from_url(url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code != 200:
+            return pd.DataFrame()
+            
+        df = pd.read_csv(io.StringIO(response.text))
+        
+        clean_cols = []
+        seen = {}
+        for c in df.columns:
+            c_cleaned = str(c).strip()
+            if c_cleaned in seen:
+                seen[c_cleaned] += 1
+                c_cleaned = f"{c_cleaned}_{seen[c_cleaned]}"
+            else:
+                seen[c_cleaned] = 0
+            clean_cols.append(c_cleaned)
+        df.columns = clean_cols
+        
+        for col in df.columns:
+            c_low = col.lower()
+            if any(k in c_low for k in ["nis", "nis siswa", "id siswa", "no induk"]) and "nis" not in [x.lower() for x in df.columns if x != col]:
+                df.rename(columns={col: "NIS"}, inplace=True)
+            elif any(k in c_low for k in ["nama", "nama siswa", "name", "名前"]):
+                df.rename(columns={col: "Nama"}, inplace=True)
+            elif any(k in c_low for k in ["kelas", "class", "level"]):
+                df.rename(columns={col: "Kelas"}, inplace=True)
+            elif any(k in c_low for k in ["tanggal", "date"]):
+                df.rename(columns={col: "Tanggal"}, inplace=True)
+        return df.dropna(how="all")
+    except Exception:
+        return pd.DataFrame()
 
-    nis_col_found = None
-    for col in df_loaded.columns:
-      c_low = col.strip().lower()
-      if c_low in ["nis", "nis siswa", "id siswa"]:
-        nis_col_found = col
-        break
-    
-    if nis_col_found and nis_col_found != "NIS":
-      df_loaded.rename(columns={nis_col_found: "NIS"}, inplace=True)
-    
-    if "NIS" in df_loaded.columns:
-      df_loaded["NIS"] = df_loaded["NIS"].astype(str).str.strip()
-    else:
-      df_loaded["NIS"] = "-"
+@st.cache_data(ttl=10)
+def load_all_sheets_data():
+    df_akademik = load_sheet_from_url(URL_AKADEMIK)
+    df_skill = load_sheet_from_url(URL_SKILL)
+    df_fisik = load_sheet_from_url(URL_FISIK)
+    df_jft = load_sheet_from_url(URL_JFT)
+    df_raport = load_sheet_from_url(URL_RAPORT)
+    df_kategori = load_sheet_from_url(URL_KATEGORI)
+    return df_akademik, df_skill, df_fisik, df_jft, df_raport, df_kategori
 
-    skip_cols = [
-        "Tanggal", "Kelas", "NIS", "NIS Siswa", "Nama", "Nama Siswa", "Jenis Kelamin", "Program", 
-        "Bab", "Sub bab", "Sensei", "Keterangan", "Disiplin", 
-        "Sopan santun", "Kebersihan (5S)", "Kerjasama",
-        "Keselamatan Kerja", "Persiapan Kerja", "Penggunaan ALat", "Teknik Kerja", "Kerja di Genba", "Komunikasi dan Kerja Tim", "Sikap Kerja", "5S & Kerapihan",
-        "Lari", "Push Up", "Sit Up", "Squat", "Plank", "Farmer Walk", "Angkat Beban"
-    ]
-    for target_df in [df_loaded, df_s2, df_skill, df_fisik]:
-      if not target_df.empty:
-        for col in target_df.columns:
-          if col not in skip_cols:
-            target_df[col] = pd.to_numeric(target_df[col], errors="coerce")
-
-    return df_loaded, df_s2, df_skill, df_fisik
-  except Exception as e:
-    st.warning(f"⚠️ Belum terhubung ke Link CSV Google Sheets. Detail: {e}")
-    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-df, df_sheet2, df_skill_sheet, df_fisik_sheet = load_data_from_csv()
+df_akademik, df_skill, df_fisik, df_jft, df_raport, df_kategori = load_all_sheets_data()
 
 def to_excel_bytes(dataframe):
-  output = io.BytesIO()
-  with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    dataframe.to_excel(writer, index=False, sheet_name="Data_LPK")
-  return output.getvalue()
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        dataframe.to_excel(output, index=False, sheet_name="Data_LPK")
+    return output.getvalue()
 
 def huruf_ke_angka(val):
-  if pd.isna(val) or str(val).strip() == "":
-    return 80.0
-  val_str = str(val).strip().upper()
-  if val_str == "A":
-    return 85.0
-  elif val_str == "B":
-    return 75.0
-  elif val_str == "C":
-    return 65.0
-  elif val_str == "D":
-    return 50.0
-  else:
-    try:
-      return float(val_str)
-    except:
-      return 80.0
+    if pd.isna(val) or str(val).strip() == "": return 80.0
+    val_str = str(val).strip().upper()
+    if val_str == "A": return 90.0
+    elif val_str == "B": return 80.0
+    elif val_str == "C": return 70.0
+    elif val_str == "D": return 60.0
+    else:
+        try: return float(val_str)
+        except: return 80.0
 
 def angka_ke_abjad(val):
-  if pd.isna(val) or val == 0:
-    return "D"
-  if val >= 85:
-    return "A"
-  elif val >= 70:
-    return "B"
-  elif val >= 55:
-    return "C"
-  else:
-    return "D"
-
-def get_catatan_perilaku_from_sheet2(aspect_title, predikat, df_s2):
-  p = str(predikat).strip().upper()
-  clean_name = aspect_title.split('(')[0].strip().lower()
-  
-  bank_catatan = {
-      "kedisiplinan": {
-          "A": "Umumnya disiplin dan mematuhi peraturan, meskipun terkadang masih perlu diingatkan.",
-          "B": "Memiliki kedisiplinan yang cukup, namun konsistensi masih perlu ditingkatkan.",
-          "C": "Sering terlambat atau kurang mematuhi peraturan sehingga memerlukan perhatian dan arahan.",
-          "D": "Tidak disiplin dan sering melanggar peraturan sehingga memerlukan pembinaan khusus."
-      },
-      "sopan": {
-          "A": "Bersikap sopan dan menghormati orang lain dengan baik meskipun terkadang masih perlu diingatkan.",
-          "B": "Memiliki sikap sopan yang cukup baik namun konsistensi masih perlu ditingkatkan.",
-          "C": "Kadang kurang memperhatikan sopan santun dan etika dalam berperilaku.",
-          "D": "Sering menunjukkan sikap yang kurang sopan dan membutuhkan pembinaan khusus."
-      },
-      "kebersihan": {
-          "A": "Mampu menjaga kebersihan dengan baik, meskipun terkadang masih perlu diingatkan.",
-          "B": "Menjaga kebersihan pada tingkat dasar, namun kepedulian dan konsistensi masih perlu ditingkatkan.",
-          "C": "Kurang menjaga kebersihan sehingga memerlukan perhatian dan arahan.",
-          "D": "Tidak menjaga kebersihan diri maupun lingkungan dan memerlukan pembinaan khusus."
-      },
-      "kerjasama": {
-          "A": "Dapat bekerja sama dengan baik bersama teman atau kelompok.",
-          "B": "Kerja sama cukup baik namun masih kurang aktif.",
-          "C": "Kurang aktif dalam kerja kelompok.",
-          "D": "Sulit bekerja sama dengan orang lain."
-      }
-  }
-
-  for key in bank_catatan:
-    if key in clean_name:
-      return bank_catatan[key].get(p, f"Memiliki {aspect_title} dengan predikat {p}.")
-  
-  return f"Memiliki {aspect_title} yang baik dan patuh pada aturan."
+    if pd.isna(val) or val == 0: return "C"
+    if val >= 85: return "A"
+    elif val >= 75: return "B"
+    elif val >= 65: return "C"
+    else: return "D"
 
 def get_clean_keterangan(subtest, val):
-  if val >= 85:
-    return f"Sangat baik dalam penguasaan materi {subtest} serta menunjukkan performa tingkat tinggi."
-  elif val >= 70:
-    return f"Memahami materi {subtest} dengan baik serta mampu mengikuti proses pembelajaran secara aktif."
-  elif val >= 50:
-    return f"Memiliki pemahaman dasar pada {subtest}, namun memerlukan peningkatan konsistensi latihan."
-  else:
-    return f"Memerlukan perhatian khusus dan bimbingan intensif pada materi {subtest}."
+    if val >= 85: return f"Sangat baik dalam penguasaan materi {subtest} serta menunjukkan performa tingkat tinggi."
+    elif val >= 70: return f"Memahami materi {subtest} dengan baik serta mampu mengikuti proses pembelajaran secara aktif."
+    elif val >= 50: return f"Memiliki pemahaman dasar pada {subtest}, namun memerlukan peningkatan konsistensi latihan."
+    else: return f"Memerlukan perhatian khusus dan bimbingan intensif pada materi {subtest}."
+
+def get_val_by_name(df_source, name_val, keywords):
+    if df_source.empty: return 80.0
+    sub_df = pd.DataFrame()
+    if name_val and "Nama" in df_source.columns:
+        sub_df = df_source[df_source["Nama"].astype(str).str.strip().str.lower() == str(name_val).strip().lower()]
+        
+    target_df = sub_df if not sub_df.empty else df_source
+    
+    for col in target_df.columns:
+        if any(k.lower() in col.lower() for k in keywords):
+            s = pd.to_numeric(target_df[col], errors="coerce").dropna()
+            if not s.empty: return s.mean()
+            else:
+                val_str = target_df[col].dropna()
+                if not val_str.empty: return huruf_ke_angka(val_str.iloc[-1])
+    return 80.0
 
 if "active_menu" not in st.session_state:
-  st.session_state.active_menu = "📊 Dashboard"
+    st.session_state.active_menu = "📊 Dashboard"
 
 # ================= SIDEBAR NAVIGASI =================
 with st.sidebar:
-  st.markdown(
-      """
-        <div class="ai-logo-container">
-            <div class="ai-logo-icon">豊</div>
-            <div class="ai-logo-text">LPK Yutaka Education Center</div>
-        </div>
-    """,
-      unsafe_allow_html=True,
-  )
-  st.markdown(
-      "<hr style='border-color: rgba(244, 114, 182, 0.3); margin: 10px 0;'>",
-      unsafe_allow_html=True,
-  )
-  st.markdown(
-      "<p style='color: #fda4af; font-size: 10px; font-weight: 700; padding-left:"
-      " 5px; margin-bottom: 6px; letter-spacing: 1px;'>NAVIGASI SISTEM</p>",
-      unsafe_allow_html=True,
-  )
+    st.markdown(
+        """
+            <div class="ai-logo-container">
+                <div class="ai-logo-icon">豊</div>
+                <div class="ai-logo-text">LPK Yutaka Education Center</div>
+            </div>
+        """, unsafe_allow_html=True)
+    st.markdown("<hr style='border-color: rgba(244, 114, 182, 0.3); margin: 10px 0;'>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #fda4af; font-size: 10px; font-weight: 700; padding-left: 5px; margin-bottom: 6px; letter-spacing: 1px;'>NAVIGASI UTAMA</p>", unsafe_allow_html=True)
 
-  menus = [
-      ("📊 Command Dashboard", "📊 Dashboard"),
-      ("✍️ Input Nilai", "✍️ Input"),
-      ("📄 Raport Siswa", "📄 Raport"),
-      ("📂 Database Peserta", "📂 Database"),
-      ("📤 Upload & Unduh", "📤 Upload/Unduh"),
-  ]
+    menus = [
+        ("📊 Dashboard", "📊 Dashboard"),
+        ("📄 Raport Siswa", "📄 Raport"),
+        ("🎯 JFT Siswa", "🎯 JFT Siswa"),
+        ("📤 Upload & Unduh", "📤 Upload/Unduh"),
+    ]
 
-  for label, menu_key in menus:
-    if st.button(label, key=f"btn_{menu_key}", use_container_width=True):
-      st.session_state.active_menu = menu_key
-      st.rerun()
+    for label, menu_key in menus:
+        if st.button(label, key=f"btn_{menu_key}", use_container_width=True):
+            st.session_state.active_menu = menu_key
+            st.rerun()
 
-  if st.button("🔄 Refresh Data Google Sheets", use_container_width=True):
-    st.cache_data.clear()
-    st.rerun()
-
-  st.markdown("---")
-  st.markdown(
-      "<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA"
-      " REALTIME CSV // v3.3</p>",
-      unsafe_allow_html=True,
-  )
+    if st.button("🔄 Refresh Data Realtime", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    st.markdown("---")
+    st.markdown("<p style='color: #cbd5e1; font-size: 9px; text-align: center;'>SAKURA REALTIME CSV // v8.1</p>", unsafe_allow_html=True)
 
 menu = st.session_state.active_menu
 
-def get_universal_val(df_source, keywords, score_col="Pos Test"):
-    if df_source.empty: return 0.0
-    if "Sub bab" in df_source.columns:
-        mask = False
-        sub_col_str = df_source["Sub bab"].astype(str)
-        for k in keywords:
-            mask = mask | sub_col_str.str.contains(k, case=False, na=False)
-        sub_df = df_source[mask]
-        if not sub_df.empty and score_col in sub_df.columns and not sub_df[score_col].dropna().empty:
-            return sub_df[score_col].mean()
-            
-    for col in df_source.columns:
-        if any(k.lower() in col.lower() for k in keywords) and not df_source[col].dropna().empty:
-            numeric_series = pd.to_numeric(df_source[col], errors="coerce")
-            v = huruf_ke_angka(numeric_series.dropna().iloc[-1] if not numeric_series.dropna().empty else df_source[col].dropna().iloc[-1])
-            if not pd.isna(v): return v
-    return 0.0
-
 # ================= MENU 1: DASHBOARD =================
 if menu == "📊 Dashboard":
-  st.markdown("<div class='main-heading'>LAPORAN PERKEMBANGAN PENDIDIKAN & TRAINING</div>", unsafe_allow_html=True)
-  st.markdown("<div class='sub-heading'>SAKURA SYSTEM REALTIME MONITORING — LPK YUTAKA</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-heading'>LAPORAN PERKEMBANGAN PENDIDIKAN & TRAINING</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-heading'>SAKURA SYSTEM REALTIME MONITORING — LPK YUTAKA</div>", unsafe_allow_html=True)
 
-  if df.empty or "Nama" not in df.columns or df["Nama"].dropna().empty:
-    st.warning("⚠️ Data Google Sheets belum terbaca.")
-  else:
-    for col_chk in ["Kelas", "Bab", "Sub bab", "Sensei", "Tanggal", "NIS"]:
-      if col_chk not in df.columns:
-        df[col_chk] = "Semua"
-    df_ui = df.fillna("Semua")
+    df_ui = df_akademik.copy()
+    for c in ["Kelas", "Nama", "Bab", "Sensei"]:
+        if c not in df_ui.columns: df_ui[c] = "Semua"
 
-    # Konversi Tanggal dengan dayfirst=True agar format DD/MM/YYYY terbaca dengan tepat
-    df["Parsed_Tanggal"] = pd.to_datetime(df["Tanggal"], errors="coerce", dayfirst=True)
-    min_date = df["Parsed_Tanggal"].min().date() if not df["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-01-01").date()
-    max_date = df["Parsed_Tanggal"].max().date() if not df["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-12-31").date()
-
-    st.markdown("#### 🔍 Filter Data Siswa")
+    st.markdown("#### 🔍 Filter Data Siswa & Periode Tanggal (Bulan Berjalan)")
     
+    fd1, fd2 = st.columns(2)
+    with fd1:
+        start_date_dash = st.date_input("Dari Tanggal", value=pd.to_datetime("2026-09-01"))
+    with fd2:
+        end_date_dash = st.date_input("Sampai Tanggal", value=pd.to_datetime("2026-09-30"))
+
     f1, f2, f3 = st.columns(3)
     with f1:
-      sel_kelas = st.selectbox("Kelas", ["Semua Kelas"] + sorted(df_ui["Kelas"].astype(str).unique().tolist()))
+        list_kelas = sorted([str(x) for x in df_ui["Kelas"].dropna().unique() if str(x).strip() not in ["nan", ""]])
+        sel_kelas = st.selectbox("Kelas", ["Semua Kelas"] + list_kelas)
     
-    if sel_kelas != "Semua Kelas":
-      list_nis_filtered = sorted(df_ui[df_ui["Kelas"].astype(str) == sel_kelas]["NIS"].astype(str).unique().tolist())
+    if sel_kelas != "Semua Kelas" and "Kelas" in df_ui.columns:
+        list_nama = sorted([str(x) for x in df_ui[df_ui["Kelas"].astype(str) == sel_kelas]["Nama"].dropna().unique() if str(x).strip() not in ["nan", ""]])
     else:
-      list_nis_filtered = sorted(df_ui["NIS"].astype(str).unique().tolist())
+        list_nama = sorted([str(x) for x in df_ui["Nama"].dropna().unique() if str(x).strip() not in ["nan", ""]])
 
     with f2:
-      sel_nis = st.selectbox("NIS Siswa", ["Semua NIS"] + list_nis_filtered)
+        sel_nama = st.selectbox("Nama Siswa", ["Semua Nama"] + list_nama)
     with f3:
-      sel_bab = st.selectbox("Bab", ["Semua Bab"] + sorted(df_ui["Bab"].astype(str).unique().tolist()))
+        list_bab = sorted([str(x) for x in df_ui["Bab"].dropna().unique() if str(x).strip() not in ["nan", ""]]) if "Bab" in df_ui.columns else []
+        sel_bab = st.selectbox("Bab", ["Semua Bab"] + list_bab)
 
     f4, f5 = st.columns(2)
     with f4:
-      sel_sensei = st.selectbox("Sensei", ["Semua Sensei"] + sorted(df_ui["Sensei"].astype(str).unique().tolist()))
+        list_sensei = sorted([str(x) for x in df_ui["Sensei"].dropna().unique() if str(x).strip() not in ["nan", ""]]) if "Sensei" in df_ui.columns else []
+        sel_sensei = st.selectbox("Sensei", ["Semua Sensei"] + list_sensei)
     with f5:
-      ignore_date = st.checkbox("Tampilkan Semua Tanggal (Abaikan Rentang Tanggal)", value=True)
+        ignore_date = st.checkbox("Abaikan Filter Rentang Tanggal", value=False)
 
-    t1, t2 = st.columns(2)
-    with t1:
-      start_date = st.date_input("Dari Tanggal", min_date)
-    with t2:
-      end_date = st.date_input("Sampai Tanggal", max_date)
+    df_v = df_akademik.copy()
+    if sel_kelas != "Semua Kelas" and "Kelas" in df_v.columns: df_v = df_v[df_v["Kelas"].astype(str) == sel_kelas]
+    if sel_nama != "Semua Nama" and "Nama" in df_v.columns: df_v = df_v[df_v["Nama"].astype(str) == sel_nama]
+    if sel_bab != "Semua Bab" and "Bab" in df_v.columns: df_v = df_v[df_v["Bab"].astype(str) == sel_bab]
+    if sel_sensei != "Semua Sensei" and "Sensei" in df_v.columns: df_v = df_v[df_v["Sensei"].astype(str) == sel_sensei]
 
-    df_v = df.copy()
-    if sel_kelas != "Semua Kelas":
-      df_v = df_v[df_v["Kelas"].astype(str) == sel_kelas]
-    if sel_nis != "Semua NIS":
-      df_v = df_v[df_v["NIS"].astype(str) == sel_nis]
-    if sel_bab != "Semua Bab":
-      df_v = df_v[df_v["Bab"].astype(str) == sel_bab]
-    if sel_sensei != "Semua Sensei":
-      df_v = df_v[df_v["Sensei"].astype(str) == sel_sensei]
+    if not ignore_date and "Tanggal" in df_v.columns:
+        df_v["ParsedDate"] = pd.to_datetime(df_v["Tanggal"], errors="coerce")
+        df_v = df_v[(df_v["ParsedDate"] >= pd.to_datetime(start_date_dash)) & (df_v["ParsedDate"] <= pd.to_datetime(end_date_dash))]
 
-    if not ignore_date:
-      df_v["Parsed_Tanggal"] = pd.to_datetime(df_v["Tanggal"], errors="coerce", dayfirst=True)
-      df_v = df_v[
-          (df_v["Parsed_Tanggal"].dt.date >= start_date) & 
-          (df_v["Parsed_Tanggal"].dt.date <= end_date)
-      ]
-
-    numeric_cols = [c for c in df_v.columns if c not in ["Tanggal", "Kelas", "NIS", "NIS Siswa", "Nama", "Jenis Kelamin", "Program", "Bab", "Sub bab", "Sensei", "Keterangan"]]
-    score_col = "Pos Test" if "Pos Test" in df_v.columns and df_v["Pos Test"].dropna().count() > 0 else (numeric_cols[0] if numeric_cols else "Rata-rata nilai")
-    if score_col not in df_v.columns:
-      df_v["Nilai_Acu"] = 0
-      score_col = "Nilai_Acu"
-
-    tot_p = df_v["NIS"].nunique() if "NIS" in df_v.columns else len(df_v)
-    avg_s = df_v[score_col].mean() if not df_v[score_col].dropna().empty else 0
+    num_cols = df_v.select_dtypes(include=["number"]).columns
+    score_col = "Pos Test" if "Pos Test" in df_v.columns else (num_cols[0] if len(num_cols) > 0 else None)
+    tot_p = df_v["NIS"].nunique() if "NIS" in df_v.columns else (df_v["Nama"].nunique() if "Nama" in df_v.columns else len(df_v))
+    avg_s = pd.to_numeric(df_v[score_col], errors="coerce").mean() if score_col and score_col in df_v.columns else 80.0
+    if pd.isna(avg_s): avg_s = 80.0
 
     st.markdown("<br>", unsafe_allow_html=True)
     m1, m2 = st.columns(2)
-    with m1:
-      st.metric("TOTAL PESERTA", f"{tot_p} Siswa")
-    with m2:
-      st.metric("RATA-RATA NILAI KESELURUHAN", f"{avg_s:.2f}")
-
+    with m1: st.metric("TOTAL PESERTA (NIS)", f"{tot_p} Siswa")
+    with m2: st.metric("RATA-RATA NILAI KESELURUHAN", f"{avg_s:.2f}")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # URUTAN 1: RATA-RATA KELAS
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>1. 📊 Rata-rata Kelas (Target KKM: 90)</div>", unsafe_allow_html=True)
-    
-    df_chart_clean = df_v.copy()
-    if "Kelas" in df_chart_clean.columns:
-        df_chart_clean["Kelas"] = df_chart_clean["Kelas"].astype(str).str.strip()
-        df_chart_clean = df_chart_clean[~df_chart_clean["Kelas"].isin(["nan", "NaN", "Semua", "None", ""])]
+    target_nama_filter = sel_nama if sel_nama != "Semua Nama" else None
 
-    chart_df = df_chart_clean.groupby("Kelas")[score_col].mean().reset_index()
-    chart_df.columns = ["Kelas", "Rata-rata"]
-
-    if not chart_df.empty and not chart_df["Rata-rata"].isna().all():
-      bar_base = alt.Chart(chart_df).mark_bar(color="#fb7185", cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
-          x=alt.X("Kelas:N", title="Kelas", sort="-y", axis=alt.Axis(labelAngle=0, labelColor="#1e293b", labelFontSize=12, labelFontWeight="bold", titleColor="#1e293b")),
-          y=alt.Y("Rata-rata:Q", title="Nilai Rata-rata", scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(labelColor="#1e293b", titleColor="#1e293b")),
-          tooltip=["Kelas", "Rata-rata"],
-      )
-      text_labels = bar_base.mark_text(align="center", baseline="bottom", dy=-6, color="#1e293b", fontWeight="bold", fontSize=12).encode(text=alt.Text("Rata-rata:Q", format=".1f"))
-      kkm_line = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(color="#e11d48", strokeWidth=2.5, strokeDash=[4, 4]).encode(y="y:Q")
-      
-      st.altair_chart((bar_base + text_labels + kkm_line).properties(height=320, background="transparent").configure_view(stroke=None), use_container_width=True)
-    else:
-      st.info("Data nilai untuk rekapitulasi kelas belum tersedia pada filter ini.")
+    # 1. Rata-rata Kelas
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>1. 📊 Rata-rata Kelas</div>", unsafe_allow_html=True)
+    if "Kelas" in df_v.columns and score_col in df_v.columns:
+        chart_df = df_v.groupby("Kelas")[score_col].mean().reset_index()
+        chart_df.columns = ["Kelas", "Rata-rata"]
+        if not chart_df.empty:
+            bar_base = alt.Chart(chart_df).mark_bar(color="#fb7185", cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
+                x=alt.X("Kelas:N", title="Kelas", sort="-y"),
+                y=alt.Y("Rata-rata:Q", title="Nilai Rata-rata", scale=alt.Scale(domain=[0, 100])),
+                tooltip=["Kelas", "Rata-rata"],
+            )
+            text_labels = bar_base.mark_text(align="center", baseline="bottom", dy=-6, color="#1e293b", fontWeight="bold").encode(text=alt.Text("Rata-rata:Q", format=".1f"))
+            kkm_line = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(color="#e11d48", strokeWidth=2.5, strokeDash=[4, 4]).encode(y="y:Q")
+            st.altair_chart((bar_base + text_labels + kkm_line).properties(height=320, background="transparent").configure_view(stroke=None), use_container_width=True)
 
     st.markdown("---")
 
-    # URUTAN 2: KEMAMPUAN AKADEMIK SISWA
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>2. 📚 Kemampuan Akademik Siswa (Grafik Radar)</div>", unsafe_allow_html=True)
+    # 2. Kemampuan Akademik (Berdasarkan Sub Bab & Pos Test, tanpa JFT)
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>2. 📚 Kemampuan Akademik</div>", unsafe_allow_html=True)
     
-    akad_data = []
-    for title, kw in [("Huruf & Kosakata", ["huruf", "kosakata", "kotoba", "kanji", "文字", "漢字", "言葉"]), 
-                      ("Tata Bahasa", ["tata bahasa", "bunpou", "文法"]), 
-                      ("Membaca", ["membaca", "dokkai", "読解"]), 
-                      ("Mendengar", ["mendengar", "choukai", "聴解"]), 
-                      ("Berbicara", ["berbicara", "kaiwa", "会話"])]:
-        val = get_universal_val(df_v, kw, score_col)
-        if val > 0:
-            akad_data.append({"Aspek": title, "Nilai": val})
+    sub_bab_col = next((c for c in df_v.columns if any(k in c.lower() for k in ["sub bab", "sub_bab", "materi"])), None)
+    pos_test_col = next((c for c in df_v.columns if any(k in c.lower() for k in ["pos test", "post test", "nilai"])), None)
 
-    df_acad_plot = pd.DataFrame(akad_data)
-    if not df_acad_plot.empty:
-      fig_radar_dash = px.line_polar(df_acad_plot, r="Nilai", theta="Aspek", line_close=True, range_r=[0, 100])
-      fig_radar_dash.update_traces(fill="toself", line_color="#be185d", marker_color="#fb7185", fillcolor="rgba(190, 24, 93, 0.2)", text=df_acad_plot["Nilai"].apply(lambda x: f"{x:.1f}"), mode="lines+markers+text")
-      fig_radar_dash.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-      st.plotly_chart(fig_radar_dash, use_container_width=True)
-    else:
-      st.info("Belum ada data sub tes akademik yang tercatat.")
+    acad_data = []
+    if sub_bab_col and pos_test_col and not df_v.empty:
+        temp_acad = df_v.copy()
+        temp_acad = temp_acad[~temp_acad[sub_bab_col].astype(str).str.lower().str.contains("jft", na=False)]
+        temp_acad[pos_test_col] = pd.to_numeric(temp_acad[pos_test_col], errors="coerce")
+        acad_grouped = temp_acad.groupby(sub_bab_col)[pos_test_col].mean().reset_index()
+        acad_data = [{"Aspek": str(row[sub_bab_col]), "Nilai": row[pos_test_col]} for _, row in acad_grouped.iterrows() if not pd.isna(row[pos_test_col])]
+
+    if not acad_data:
+        acad_data = [
+            {"Aspek": "Kosakata", "Nilai": get_val_by_name(df_akademik, target_nama_filter, ["kosakata", "goi"])},
+            {"Aspek": "Bunpo", "Nilai": get_val_by_name(df_akademik, target_nama_filter, ["bunpou", "tata bahasa"])},
+            {"Aspek": "Kanji", "Nilai": get_val_by_name(df_akademik, target_nama_filter, ["kanji"])},
+            {"Aspek": "Mendengar", "Nilai": get_val_by_name(df_akademik, target_nama_filter, ["mendengar", "choukai"])},
+            {"Aspek": "Membaca", "Nilai": get_val_by_name(df_akademik, target_nama_filter, ["membaca", "dokkai"])}
+        ]
+
+    df_acad_plot = pd.DataFrame(acad_data)
+    fig_radar_acad = px.line_polar(df_acad_plot, r="Nilai", theta="Aspek", line_close=True, range_r=[0, 100])
+    fig_radar_acad.update_traces(fill="toself", line_color="#be185d", marker_color="#fb7185", fillcolor="rgba(190, 24, 93, 0.2)", mode="lines+markers+text", texttemplate="%{r:.1f}", textposition="top center")
+    fig_radar_acad.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=420, paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_radar_acad, use_container_width=True)
 
     st.markdown("---")
 
-    # URUTAN 3: ATTITUDE
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>3. 🌟 Attitude / Sikap Siswa</div>", unsafe_allow_html=True)
+    # 3. Attitude (Grafik Lingkaran/Pie Chart untuk data siswa berdasarkan NIS yang memperoleh nilai sikap A, B, C, D)
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>3. 🌟 Attitude</div>", unsafe_allow_html=True)
     
-    if "Nama" in df_v.columns:
-      student_att_grades = []
-      for name_siswa, group in df_v.groupby("Nama"):
-        grades_list = []
-        att_keys = ["disiplin", "sopan", "kebersihan", "5s", "kerjasama"]
-        mask_att = False
-        sub_col_str = group["Sub bab"].astype(str)
-        for k in att_keys:
-            mask_att = mask_att | sub_col_str.str.contains(k, case=False, na=False)
-        sub_df = group[mask_att]
+    att_cols = [c for c in df_v.columns if any(k in c.lower() for k in ["disiplin", "sopan", "kebersihan", "5s", "kerjasama"])]
+    if not att_cols:
+        att_cols = [c for c in df_v.columns if any(k in c.lower() for k in ["attitude", "sikap"])]
+
+    if att_cols and "NIS" in df_v.columns and not df_v.empty:
+        # Hitung rata-rata skor sikap per NIS
+        temp_att = df_v[["NIS"] + att_cols].copy()
+        for col in att_cols:
+            temp_att[col] = temp_att[col].apply(huruf_ke_angka)
+        temp_att["AvgScore"] = temp_att[att_cols].mean(axis=1)
         
-        for val in sub_df[score_col].dropna():
-            grades_list.append(angka_ke_abjad(float(val)))
-            
-        for col in ["Disiplin", "Sopan santun", "Kebersihan (5S)", "Kerjasama"]:
-             if col in group.columns:
-                 for val in group[col].dropna():
-                     if str(val).strip().upper() in ["A","B","C","D"]:
-                         grades_list.append(str(val).strip().upper())
-                     else:
-                         grades_list.append(angka_ke_abjad(huruf_ke_angka(val)))
-                         
-        if grades_list:
-          from collections import Counter
-          c_counts = Counter(grades_list)
-          dominant_grade = c_counts.most_common(1)[0][0]
-          student_att_grades.append(dominant_grade)
-
-      if student_att_grades:
-        att_series = pd.Series(student_att_grades).value_counts().reindex(["A", "B", "C", "D"], fill_value=0).reset_index()
-        att_series.columns = ["Predikat", "Jumlah Siswa"]
-        att_series["Persentase"] = (att_series["Jumlah Siswa"] / att_series["Jumlah Siswa"].sum()) * 100 if att_series["Jumlah Siswa"].sum() > 0 else 0
-
-        c_pie1, c_pie2 = st.columns([1.5, 1])
-        with c_pie1:
-          fig_pie = px.pie(att_series, names="Predikat", values="Jumlah Siswa", hole=0.4, color="Predikat", color_discrete_map={"A": "#2563eb", "B": "#10b981", "C": "#d97706", "D": "#dc2626"})
-          fig_pie.update_layout(height=300, paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=10, b=10, l=10, r=10))
-          st.plotly_chart(fig_pie, use_container_width=True)
-        with c_pie2:
-          st.markdown("##### Distribusi Predikat:")
-          for _, row in att_series.iterrows():
-            st.markdown(f"- **Predikat {row['Predikat']}**: **{row['Jumlah Siswa']} data** ({row['Persentase']:.1f}%)")
-      else:
-        st.info("Belum ada data nilai predikat sikap per siswa yang tercatat.")
+        # Agregasi per NIS unik
+        nis_att_grade = temp_att.groupby("NIS")["AvgScore"].mean().reset_index()
+        nis_att_grade["Grade"] = nis_att_grade["AvgScore"].apply(angka_ke_abjad)
+        
+        grade_counts = nis_att_grade["Grade"].value_counts().reset_index()
+        grade_counts.columns = ["Grade", "Jumlah Siswa"]
+        total_nis_att = grade_counts["Jumlah Siswa"].sum()
+        
+        all_grades = pd.DataFrame({"Grade": ["A", "B", "C", "D"]})
+        grade_counts = pd.merge(all_grades, grade_counts, on="Grade", how="left").fillna(0)
+        grade_counts["Persentase (%)"] = (grade_counts["Jumlah Siswa"] / (total_nis_att if total_nis_att > 0 else 1)) * 100
+        
+        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+        grades_list = [
+            ("Grade A (Sangat Baik)", grade_counts[grade_counts["Grade"]=="A"]["Jumlah Siswa"].values[0], grade_counts[grade_counts["Grade"]=="A"]["Persentase (%)"].values[0], "#10b981"),
+            ("Grade B (Baik)", grade_counts[grade_counts["Grade"]=="B"]["Jumlah Siswa"].values[0], grade_counts[grade_counts["Grade"]=="B"]["Persentase (%)"].values[0], "#3b82f6"),
+            ("Grade C (Cukup)", grade_counts[grade_counts["Grade"]=="C"]["Jumlah Siswa"].values[0], grade_counts[grade_counts["Grade"]=="C"]["Persentase (%)"].values[0], "#f59e0b"),
+            ("Grade D (Kurang)", grade_counts[grade_counts["Grade"]=="D"]["Jumlah Siswa"].values[0], grade_counts[grade_counts["Grade"]=="D"]["Persentase (%)"].values[0], "#ef4444"),
+        ]
+        
+        for col_obj, (g_title, g_jml, g_pct, g_color) in zip([col_c1, col_c2, col_c3, col_c4], grades_list):
+            with col_obj:
+                st.markdown(f"""
+                <div style="background: white; padding: 15px; border-radius: 10px; border-top: 5px solid {g_color}; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center;">
+                    <div style="font-size: 13px; font-weight: 700; color: #64748b;">{g_title}</div>
+                    <div style="font-size: 24px; font-weight: 900; color: {g_color}; margin: 5px 0;">{int(g_jml)} Siswa</div>
+                    <div style="font-size: 12px; font-weight: 600; color: #475569;">({g_pct:.1f}%)</div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        fig_att_pie = px.pie(grade_counts, names="Grade", values="Jumlah Siswa", hole=0.45, color_discrete_sequence=["#10b981", "#3b82f6", "#f59e0b", "#ef4444"])
+        fig_att_pie.update_traces(textinfo='percent+label', textfont_size=15, marker=dict(line=dict(color='#ffffff', width=2)))
+        fig_att_pie.update_layout(height=450, paper_bgcolor="rgba(0,0,0,0)", legend=dict(font=dict(size=14)))
+        st.plotly_chart(fig_att_pie, use_container_width=True)
     else:
-      st.info("Kolom nama siswa belum terdeteksi.")
+        st.info("💡 Data Attitude atau kolom NIS belum tersedia.")
 
     st.markdown("---")
 
-    # URUTAN 4: SKILL SISWA (8 ASPEK LENGKAP)
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>4. 🛠️ Skill Siswa (Grafik Radar - 8 Aspek Lengkap)</div>", unsafe_allow_html=True)
-    
-    skill_data = []
-    skill_cols_mapping = [
-        ("Keselamatan Kerja", ["Keselamatan Kerja", "keselamatan"]),
-        ("Persiapan Kerja", ["Persiapan Kerja", "persiapan"]),
-        ("Penggunaan Alat", ["Penggunaan ALat", "Penggunaan Alat", "penggunaan"]),
-        ("Teknik Kerja", ["Teknik Kerja", "teknik"]),
-        ("Kerja di Genba", ["Kerja di Genba", "genba"]),
-        ("Komunikasi dan Kerja Tim", ["Komunikasi dan Kerja Tim", "Komunikasi tim", "komunikasi"]),
-        ("Sikap Kerja", ["Sikap Kerja", "sikap kerja"]),
-        ("5S & Kerapihan", ["5S & Kerapihan", "5s", "kerapihan"])
+    # 4. Skill Siswa
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>4. 🛠️ Skill Siswa</div>", unsafe_allow_html=True)
+    skill_data = [
+        {"Aspek Skill": "Keselamatan Kerja", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["keselamatan"])},
+        {"Aspek Skill": "Persiapan Kerja", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["persiapan"])},
+        {"Aspek Skill": "Penggunaan Alat", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["alat", "penggunaan"])},
+        {"Aspek Skill": "Teknik Kerja", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["teknik"])},
+        {"Aspek Skill": "Kerja di Genba", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["genba"])},
+        {"Aspek Skill": "Komunikasi", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["komunikasi"])},
+        {"Aspek Skill": "Sikap Kerja", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["sikap"])},
+        {"Aspek Skill": "5S & Kerapihan", "Nilai": get_val_by_name(df_skill, target_nama_filter, ["5s", "kerapihan"])}
     ]
-    
-    target_skill_df = df_skill_sheet if not df_skill_sheet.empty else df_v
-    for title, kws in skill_cols_mapping:
-      val_mean = 0.0
-      for col in target_skill_df.columns:
-        if any(kw.lower() in col.lower() for kw in kws):
-          numeric_series = pd.to_numeric(target_skill_df[col], errors="coerce")
-          val_mean = numeric_series.dropna().mean()
-          break
-      if pd.isna(val_mean): val_mean = 0.0
-      if val_mean == 0:
-        val_mean = get_universal_val(target_skill_df, kws, score_col)
-      if val_mean == 0:
-        val_mean = 75.0
-
-      skill_data.append({"Aspek Skill": title, "Nilai": val_mean})
-
     df_skill_summary = pd.DataFrame(skill_data)
-    if not df_skill_summary.empty:
-      fig_skill_radar = px.line_polar(df_skill_summary, r="Nilai", theta="Aspek Skill", line_close=True, range_r=[0, 100])
-      fig_skill_radar.update_traces(fill="toself", line_color="#0d9488", marker_color="#14b8a6", fillcolor="rgba(13, 148, 136, 0.2)", text=df_skill_summary["Nilai"].apply(lambda x: f"{x:.1f}"), mode="lines+markers+text")
-      fig_skill_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=420, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-      st.plotly_chart(fig_skill_radar, use_container_width=True)
-    else:
-      st.info("Belum ada data nilai pada aspek skill yang tercatat.")
+    fig_skill_radar = px.line_polar(df_skill_summary, r="Nilai", theta="Aspek Skill", line_close=True, range_r=[0, 100])
+    fig_skill_radar.update_traces(fill="toself", line_color="#0d9488", marker_color="#14b8a6", fillcolor="rgba(13, 148, 136, 0.2)", mode="lines+markers+text", texttemplate="%{r:.1f}", textposition="top center")
+    fig_skill_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), height=420, paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_skill_radar, use_container_width=True)
 
     st.markdown("---")
 
-    # URUTAN 5: KEMAMPUAN FISIK SISWA
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>5. 🏃 Kemampuan Fisik Siswa (Standar Target & Grafik Batang)</div>", unsafe_allow_html=True)
-    
-    fisik_data = []
-    target_fisik_df = df_fisik_sheet if not df_fisik_sheet.empty else df_v
-    
-    fisik_cols_mapping = [
-        ("Lari", ["lari", "3km", "1.5km"]),
-        ("Push Up", ["push up", "pushup", "push"]),
-        ("Sit Up", ["sit up", "situp", "sit"]),
-        ("Squat", ["squat"]),
-        ("Plank", ["plank"]),
-        ("Farmer Walk", ["farmer walk", "farmer"]),
-        ("Angkat Beban", ["angkat beban", "beban"])
+    # 5. Fisik Siswa
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>5. 🏃 Kemampuan Fisik Siswa</div>", unsafe_allow_html=True)
+    fisik_data = [
+        {"Item Tes Fisik": "Lari", "Rata-rata Nilai": get_val_by_name(df_fisik, target_nama_filter, ["lari"])},
+        {"Item Tes Fisik": "Push Up", "Rata-rata Nilai": get_val_by_name(df_fisik, target_nama_filter, ["push"])},
+        {"Item Tes Fisik": "Sit Up", "Rata-rata Nilai": get_val_by_name(df_fisik, target_nama_filter, ["sit"])},
+        {"Item Tes Fisik": "Squat", "Rata-rata Nilai": get_val_by_name(df_fisik, target_nama_filter, ["squat"])},
+        {"Item Tes Fisik": "Plank", "Rata-rata Nilai": get_val_by_name(df_fisik, target_nama_filter, ["plank"])}
     ]
-    
-    for title, kws in fisik_cols_mapping:
-      val_mean = 0.0
-      for col in target_fisik_df.columns:
-        if any(kw.lower() in col.lower() for kw in kws):
-          numeric_series = pd.to_numeric(target_fisik_df[col], errors="coerce")
-          val_mean = numeric_series.dropna().mean()
-          break
-      if pd.isna(val_mean): val_mean = 0.0
-      if val_mean == 0:
-        val_mean = get_universal_val(target_fisik_df, kws, score_col)
-      if val_mean == 0:
-        val_mean = 75.0
-        
-      fisik_data.append({"Item Tes Fisik": title, "Rata-rata Nilai": val_mean})
-        
     fisik_summary = pd.DataFrame(fisik_data)
-    
-    if not fisik_summary.empty:
-      fig_fisik_bar = px.bar(fisik_summary, x="Item Tes Fisik", y="Rata-rata Nilai", text="Rata-rata Nilai", color="Rata-rata Nilai", color_continuous_scale="Purples", range_y=[0, 105])
-      fig_fisik_bar.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-      fig_fisik_bar.update_layout(height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis_tickangle=-15)
-      st.plotly_chart(fig_fisik_bar, use_container_width=True)
-    else:
-      st.info("Data rekapitulasi tes fisik belum tersedia.")
+    fig_fisik_bar = px.bar(fisik_summary, x="Item Tes Fisik", y="Rata-rata Nilai", text="Rata-rata Nilai", color="Rata-rata Nilai", color_continuous_scale="Purples")
+    fig_fisik_bar.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+    fig_fisik_bar.update_layout(height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig_fisik_bar, use_container_width=True)
 
     st.markdown("---")
 
-    # 6. REKAPAN NILAI BERDASARKAN FILTER
-    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>6. 📋 Rekapan Nilai Berdasarkan Filter Aktif</div>", unsafe_allow_html=True)
-    if not df_v.empty:
-      st.dataframe(df_v, use_container_width=True)
-    else:
-      st.info("Tidak ada data yang sesuai dengan filter yang dipilih.")
+    # 6. Database Utama
+    st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>6. 📂 Database Utama</div>", unsafe_allow_html=True)
+    st.dataframe(df_v, use_container_width=True)
 
-# ================= MENU 2: INPUT NILAI =================
-elif menu == "✍️ Input":
-  st.markdown("<div class='main-heading'>FORM INPUT NILAI & KOMPETENSI</div>", unsafe_allow_html=True)
-  st.info("💡 **Informasi**: Karena menggunakan mode Publikasi CSV Link, Anda dapat langsung menginput data baru secara *realtime* melalui tabel Google Spreadsheet Anda di browser. Setelah diinput di Google Sheets, klik tombol **'Refresh Data Google Sheets'** di sidebar sebelah kiri.")
-
-# ================= MENU 3: RAPORT SISWA =================
+# ================= MENU 2: RAPORT SISWA =================
 elif menu == "📄 Raport":
-  st.markdown("<div class='main-heading'>RAPORT RESMI LPK YUTAKA (評価報告書 & 体力評価)</div>", unsafe_allow_html=True)
-
-  if df.empty or "Nama" not in df.columns or df["Nama"].dropna().empty:
-    st.info("Database Google Sheets masih kosong.")
-  else:
-    df_peserta_unique = df[["Nama", "NIS"]].dropna(subset=["Nama"]).drop_duplicates()
-    list_opsi_siswa = [f"{row['Nama']} (NIS: {row['NIS']})" for _, row in df_peserta_unique.iterrows()]
+    st.markdown("<div class='main-heading'>RAPORT RESMI LPK YUTAKA</div>", unsafe_allow_html=True)
     
-    pilih_opsi = st.selectbox("Pilih Peserta (Berdasarkan Nama & NIS):", list_opsi_siswa)
-    pilih_nama = pilih_opsi.split(" (NIS:")[0]
-    pilih_nis = pilih_opsi.split(" (NIS:")[1].replace(")", "").strip()
+    target_raport = df_raport if not df_raport.empty and "Nama" in df_raport.columns else df_akademik
+    if not target_raport.empty and "Nama" in target_raport.columns:
+        c_date1, c_date2 = st.columns(2)
+        with c_date1:
+            start_date = st.date_input("Dari Tanggal", value=pd.to_datetime("2026-09-01"))
+        with c_date2:
+            end_date = st.date_input("Sampai Tanggal", value=pd.to_datetime("2026-09-30"))
 
-    df_siswa = df[(df["Nama"].astype(str) == pilih_nama) & (df["NIS"].astype(str) == pilih_nis)]
-    if df_siswa.empty:
-      df_siswa = df[df["Nama"].astype(str) == pilih_nama]
-
-    if not df_siswa.empty:
-      latest_data = df_siswa.iloc[-1]
-      nis_val = pilih_nis if pilih_nis and pilih_nis != "-" else str(latest_data.get("NIS", "-"))
-      kelas_val = str(latest_data.get("Kelas", "-"))
-      
-      if "(" in kelas_val:
-        kelas_val = kelas_val.split("(")[0].strip()
-
-      jk_raw = str(latest_data.get("Jenis Kelamin", "Laki-laki")).strip()
-      jk_val = jk_raw
-      program_val = str(latest_data.get("Program", "Reguler"))
-
-      df_siswa["Parsed_Tanggal"] = pd.to_datetime(df_siswa["Tanggal"], errors="coerce", dayfirst=True)
-      min_date_s = df_siswa["Parsed_Tanggal"].min().date() if not df_siswa["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-07-13").date()
-      max_date_s = df_siswa["Parsed_Tanggal"].max().date() if not df_siswa["Parsed_Tanggal"].isna().all() else pd.to_datetime("2026-08-05").date()
-
-      with st.form("form_raport_official"):
-        st.markdown(f"#### 🛠️ Input Periode, Kehadiran & Catatan Sensei (NIS: {nis_val})")
+        list_opsi_siswa = sorted([str(x) for x in target_raport["Nama"].dropna().unique() if str(x).strip() not in ["nan", ""]])
+        pilih_nama = st.selectbox("Cari & Pilih Nama Siswa:", list_opsi_siswa)
         
-        c_p1, c_p2 = st.columns(2)
-        with c_p1:
-          start_p = st.date_input("Periode Dari Tanggal", min_date_s)
-        with c_p2:
-          end_p = st.date_input("Periode Sampai Tanggal", max_date_s)
+        kelas_val = "N5L1"
+        row_match = target_raport[target_raport["Nama"].astype(str) == pilih_nama]
+        if not row_match.empty and "Kelas" in row_match.columns:
+            kelas_val = str(row_match["Kelas"].iloc[0])
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-          hadir_val = st.number_input("Hadir (Hari)", 0, 30, 17)
-        with c2:
-          izin_val = st.number_input("Izin/Sakit (Hari)", 0, 30, 1)
-        with c3:
-          alpa_val = st.number_input("Alpa (Hari)", 0, 30, 0)
-
-        catatan_umum = st.text_area("Catatan Umum Sensei (Akademik):", value=f"Peserta {pilih_nama} (NIS: {nis_val}) memiliki kemampuan dan pemahaman yang baik.")
-        catatan_fisik = st.text_area("Catatan Saran Fisik:", value="Memiliki kemampuan fisik yang cukup baik dengan konsistensi latihan yang perlu ditingkatkan.")
-        kesimpulan = st.selectbox("Kesimpulan Kenaikan", ["NAIK KELAS", "TINGGAL KELAS"])
-        show_preview = st.form_submit_button("👁️ TAMPILKAN RAPORT LENGKAP RESMI", use_container_width=True)
-
-      if show_preview:
-        st.markdown("---")
+        kesimpulan = st.selectbox("Status Kenaikan / Kelulusan:", ["NAIK KELAS", "TINGGAL KELAS", "LULUS"])
         
-        df_per = df_siswa[(df_siswa["Parsed_Tanggal"].dt.date >= start_p) & (df_siswa["Parsed_Tanggal"].dt.date <= end_p)]
-        if df_per.empty:
-          df_per = df_siswa
+        if st.button("👁️ TAMPILKAN RAPORT LENGKAP & GRAFIK", use_container_width=True):
+            st.markdown("---")
+            val_huruf = get_val_by_name(df_akademik, pilih_nama, ["kosakata", "goi", "huruf"])
+            val_tata = get_val_by_name(df_akademik, pilih_nama, ["bunpou", "tata bahasa"])
+            val_baca = get_val_by_name(df_akademik, pilih_nama, ["membaca", "dokkai"])
+            val_dengar = get_val_by_name(df_akademik, pilih_nama, ["mendengar", "choukai"])
+            val_bicara = get_val_by_name(df_akademik, pilih_nama, ["berbicara", "kaiwa"])
 
-        def get_akad_val(keywords):
-            val = get_universal_val(df_per, keywords)
-            if val == 0: val = get_universal_val(df_siswa, keywords)
-            return val
+            locked_akad_subs = [
+                ("Kosakata & Huruf", val_huruf),
+                ("Tata Bahasa (文法)", val_tata),
+                ("Membaca (読解)", val_baca),
+                ("Mendengar (聴解)", val_dengar),
+                ("Berbicara (会話)", val_bicara)
+            ]
 
-        locked_akad_subs = [
-            ("Huruf & Kosakata", get_akad_val(["huruf", "kosakata", "kotoba", "kanji", "文字", "漢字", "言葉"])),
-            ("Tata Bahasa (文法)", get_akad_val(["tata bahasa", "bunpou", "文法"])),
-            ("Membaca (読解)", get_akad_val(["membaca", "dokkai", "読解"])),
-            ("Mendengar (聴解)", get_akad_val(["mendengar", "choukai", "聴解"])),
-            ("Berbicara (会話)", get_akad_val(["berbicara", "kaiwa", "会話"]))
-        ]
-
-        list_sikap_config = [
-            {"title": "Disiplin", "kw": ["disiplin"]},
-            {"title": "Sopan santun", "kw": ["sopan"]},
-            {"title": "Kebersihan (5S)", "kw": ["kebersihan", "5s"]},
-            {"title": "Kerjasama", "kw": ["kerjasama"]}
-        ]
-
-        is_female = jk_raw.lower().startswith("p") or jk_raw.lower() == "perempuan"
-        if is_female:
-          list_fisik_cols = [
-              ("LARI (1,5KM 15MENIT)", ["1,5", "1.5", "lari"]),
-              ("PUSH UP (40X 1MENIT)", ["push up", "pushup"]),
-              ("SIT UP (40X 1MENIT)", ["sit up", "situp"]),
-              ("SQUAT (45X 1MENIT)", ["squat"]),
-              ("PLANK (4MENIT)", ["plank"]),
-              ("FARMER WALK (8kg)", ["farmer"]),
-              ("ANGKAT BEBAN (10kg)", ["beban", "angkat beban"])
-          ]
-        else:
-          list_fisik_cols = [
-              ("LARI (3KM 15MENIT)", ["3km", "lari"]),
-              ("PUSH UP (55X 1MENIT)", ["push up", "pushup"]),
-              ("SIT UP (60X1MENIT)", ["sit up", "situp"]),
-              ("SQUAT (70X1MENIT)", ["squat"]),
-              ("PLANK (4MENIT)", ["plank"]),
-              ("FARMER WALK (25kg)", ["farmer"]),
-              ("ANGKAT BEBAN (35kg)", ["beban", "angkat beban"])
-          ]
-
-        rows_akad = ""
-        tot_akad = 0
-        cnt_akad = 0
-        pdf_akad_data = []
-
-        for idx, (sub_name, vnum) in enumerate(locked_akad_subs, 1):
-          if pd.isna(vnum) or vnum == 0: vnum = 75.0
-          tot_akad += vnum
-          cnt_akad += 1
-          huruf = angka_ke_abjad(vnum)
-          
-          ket = get_clean_keterangan(sub_name.split('(')[0].strip(), vnum)
-          pdf_akad_data.append({"sub": sub_name, "val": vnum, "huruf": huruf, "ket": ket})
-
-          rows_akad += f"""
-          <tr>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{idx}</td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px;">{sub_name}</td>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{vnum:.1f}</td>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;"><b>{huruf}</b></td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px; font-size: 11px;">{ket}</td>
-          </tr>
-          """
-        avg_akad = (tot_akad / cnt_akad) if cnt_akad > 0 else 0
-
-        rows_sikap = ""
-        pdf_sikap_data = []
-        for idx, cfg in enumerate(list_sikap_config, 1):
-          sub_title = cfg["title"]
-          vnum = get_akad_val(cfg["kw"])
-          if vnum == 0: vnum = 85.0
-          
-          huruf = angka_ke_abjad(vnum)
-          ket = get_catatan_perilaku_from_sheet2(sub_title, huruf, df_sheet2)
-          pdf_sikap_data.append({"sub": sub_title, "val": vnum, "huruf": huruf, "ket": ket})
-          
-          rows_sikap += f"""
-          <tr>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{idx}</td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px;">{sub_title}</td>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;"><b>{huruf}</b></td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px; font-size: 11px;">{ket}</td>
-          </tr>
-          """
-
-        rows_fisik = ""
-        pdf_fisik_data = []
-        for idx, (sub_title, keywords) in enumerate(list_fisik_cols, 1):
-          vnum = get_akad_val(keywords)
-          if vnum == 0: vnum = 75.0
-
-          huruf = angka_ke_abjad(vnum)
-          ket = f"Performa dan kemampuan fisik pada {sub_title} terpantau dengan baik."
-
-          pdf_fisik_data.append({"sub": sub_title, "val": vnum, "huruf": huruf, "ket": ket})
-          rows_fisik += f"""
-          <tr>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{idx}</td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px;">{sub_title}</td>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{vnum:.1f}</td>
-              <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;"><b>{huruf}</b></td>
-              <td style="border: 1px solid #cbd5e1; padding: 5px; font-size: 11px;">{ket}</td>
-          </tr>
-          """
-
-        periode_str = f"{start_p.strftime('%d/%m/%Y')} - {end_p.strftime('%d/%m/%Y')}"
-
-        html_raport = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="utf-8"></head>
-        <body>
-        <div style="background: white; padding: 35px; border-radius: 8px; color: #1e293b; border: 2px solid #be185d; font-family: 'Segoe UI', Tahoma, sans-serif;">
-            
-            <h2 style="text-align: center; color: #be185d; margin-bottom: 2px;">LPK YUTAKA EDUCATION CENTER</h2>
-            <p style="text-align: center; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 0;">Laporan Hasil Belajar Siswa (評価報告書)</p>
-            <hr style="border: 1px solid #f472b6; margin-bottom: 15px;">
-            
-            <table style="width: 100%; font-size: 13px; margin-bottom: 15px; border: none;">
+            rows_akad = ""
+            tot_akad = 0
+            for idx, (sub_name, vnum) in enumerate(locked_akad_subs, 1):
+                tot_akad += vnum
+                huruf = angka_ke_abjad(vnum)
+                ket = get_clean_keterangan(sub_name.split('(')[0].strip(), vnum)
+                rows_akad += f"""
                 <tr>
-                    <td><b>Nama Siswa:</b> {pilih_nama}</td>
-                    <td><b>Periode:</b> {periode_str}</td>
+                    <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{idx}</td>
+                    <td style="border: 1px solid #cbd5e1; padding: 5px;">{sub_name}</td>
+                    <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{vnum:.1f}</td>
+                    <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;"><b>{huruf}</b></td>
+                    <td style="border: 1px solid #cbd5e1; padding: 5px; font-size: 11px;">{ket}</td>
                 </tr>
-                <tr>
-                    <td><b>NIS Siswa:</b> {nis_val}</td>
-                    <td><b>Level / Kelas:</b> {kelas_val}</td>
-                </tr>
-            </table>
+                """
+            avg_akad = tot_akad / 5
 
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">1. KEMAMPUAN AKADEMIK</h4>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 15px;">
+            st.markdown(f"### 📋 Hasil Evaluasi Raport: **{pilih_nama}** | Kelas: {kelas_val} (Periode: {start_date} s/d {end_date})")
+            st.components.v1.html(f"""
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; font-family: sans-serif;">
                 <thead>
                     <tr style="background: #be185d; color: white;">
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 35px;">No</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Mata Pelajaran (日本語能力)</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 60px;">Nilai</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 60px;">Predikat</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Keterangan</th>
+                        <th style="padding: 8px; border: 1px solid #cbd5e1;">No</th>
+                        <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Mata Pelajaran</th>
+                        <th style="padding: 8px; border: 1px solid #cbd5e1;">Nilai</th>
+                        <th style="padding: 8px; border: 1px solid #cbd5e1;">Predikat</th>
+                        <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Keterangan</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows_akad}
                     <tr style="background: #f1f5f9; font-weight: bold;">
-                        <td colspan="2" style="text-align: right; border: 1px solid #cbd5e1; padding: 5px;">RATA-RATA:</td>
-                        <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;">{avg_akad:.1f}</td>
-                        <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px;"><b>{angka_ke_abjad(avg_akad)}</b></td>
-                        <td style="border: 1px solid #cbd5e1; padding: 5px;"></td>
+                        <td colspan="2" style="text-align: right; border: 1px solid #cbd5e1; padding: 8px;">RATA-RATA:</td>
+                        <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;">{avg_akad:.1f}</td>
+                        <td style="text-align: center; border: 1px solid #cbd5e1; padding: 8px;"><b>{angka_ke_abjad(avg_akad)}</b></td>
+                        <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
                     </tr>
                 </tbody>
             </table>
+            """, height=260)
 
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">II. EVALUASI SIKAP & KARAKTER (生活態度)</h4>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 15px;">
-                <thead>
-                    <tr style="background: #334155; color: white;">
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 35px;">No</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Aspek Penilaian</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 60px;">Predikat</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Catatan Perilaku</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_sikap}
-                </tbody>
-            </table>
+            c_graf1, c_graf2 = st.columns(2)
+            with c_graf1:
+                df_graf_akad = pd.DataFrame([
+                    {"Aspek": "Kosakata", "Nilai": val_huruf},
+                    {"Aspek": "Tata Bahasa", "Nilai": val_tata},
+                    {"Aspek": "Membaca", "Nilai": val_baca},
+                    {"Aspek": "Mendengar", "Nilai": val_dengar},
+                    {"Aspek": "Berbicara", "Nilai": val_bicara},
+                ])
+                fig_r_akad = px.line_polar(df_graf_akad, r="Nilai", theta="Aspek", line_close=True, range_r=[0, 100])
+                fig_r_akad.update_traces(fill="toself", line_color="#be185d", marker_color="#fb7185", fillcolor="rgba(190, 24, 93, 0.2)", mode="lines+markers+text", texttemplate="%{r:.1f}", textposition="top center")
+                fig_r_akad.update_layout(title="Grafik Akademik", height=320, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_r_akad, use_container_width=True)
 
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">III. KEHADIRAN</h4>
-            <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-bottom: 15px;">
-                <tr style="background: #f8fafc;">
-                    <td style="border: 1px solid #cbd5e1; padding: 5px;"><b>Hadir:</b> {hadir_val} Hari</td>
-                    <td style="border: 1px solid #cbd5e1; padding: 5px;"><b>Izin/Sakit:</b> {izin_val} Hari</td>
-                    <td style="border: 1px solid #cbd5e1; padding: 5px;"><b>Alpa:</b> {alpa_val} Hari</td>
-                    <td style="border: 1px solid #cbd5e1; padding: 5px;"><b>Total Hari:</b> {hadir_val + izin_val + alpa_val} Hari</td>
-                </tr>
-            </table>
+            with c_graf2:
+                df_graf_fisik = pd.DataFrame([
+                    {"Item Fisik": "Lari", "Skor": get_val_by_name(df_fisik, pilih_nama, ["lari"])},
+                    {"Item Fisik": "Push Up", "Skor": get_val_by_name(df_fisik, pilih_nama, ["push"])},
+                    {"Item Fisik": "Sit Up", "Skor": get_val_by_name(df_fisik, pilih_nama, ["sit"])},
+                    {"Item Fisik": "Squat", "Skor": get_val_by_name(df_fisik, pilih_nama, ["squat"])},
+                    {"Item Fisik": "Plank", "Skor": get_val_by_name(df_fisik, pilih_nama, ["plank"])},
+                ])
+                fig_b_fisik = px.bar(df_graf_fisik, x="Item Fisik", y="Skor", text="Skor", color="Skor", color_continuous_scale="Teal")
+                fig_b_fisik.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+                fig_b_fisik.update_layout(title="Grafik Fisik", height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_b_fisik, use_container_width=True)
 
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">IV. CATATAN SENSEI</h4>
-            <div style="background: #fdf2f8; padding: 8px; border-left: 4px solid #be185d; font-size: 12px; margin-bottom: 15px;">
-                {catatan_umum}
+            st.markdown(f"""
+            <div style="font-size: 16px; font-weight: bold; color: #059669; padding: 15px; background: #ecfdf5; border-radius: 8px; border-left: 5px solid #10b981; margin-top: 10px; text-align: center;">
+                STATUS KELULUSAN / KENAIKAN KELAS: {kesimpulan}
             </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("⚠️ Data raport siswa belum tersedia di spreadsheet.")
 
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">V. KESIMPULAN</h4>
-            <div style="font-size: 14px; font-weight: bold; color: #059669; padding: 4px 0; margin-bottom: 30px;">
-                STATUS: {kesimpulan}
-            </div>
-
-            <hr style="border: 2px dashed #cbd5e1; margin: 30px 0;">
-
-            <h2 style="text-align: center; color: #be185d; margin-bottom: 2px;">LPK YUTAKA EDUCATION CENTER</h2>
-            <p style="text-align: center; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 0;">Laporan Hasil Evaluasi Fisik Siswa (体力評価試験)</p>
-            <hr style="border: 1px solid #f472b6; margin-bottom: 15px;">
-
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">I. KEMAMPUAN FISIK</h4>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 15px;">
-                <thead>
-                    <tr style="background: #be185d; color: white;">
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 35px;">No</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Item Tes Fisik</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 60px;">Nilai</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; width: 60px;">Predikat</th>
-                        <th style="padding: 5px; border: 1px solid #cbd5e1; text-align: left;">Keterangan</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_fisik}
-                </tbody>
-            </table>
-
-            <h4 style="color: #be185d; border-bottom: 2px solid #be185d; padding-bottom: 4px; margin-bottom: 8px;">II. CATATAN SARAN FISIK</h4>
-            <div style="background: #fdf2f8; padding: 8px; border-left: 4px solid #be185d; font-size: 12px; margin-bottom: 15px;">
-                {catatan_fisik}
-            </div>
-
-        </div>
-        </body>
-        </html>
-        """
+# ================= MENU 3: JFT SISWA =================
+elif menu == "🎯 JFT Siswa":
+    st.markdown("<div class='main-heading'>DATA NILAI JFT SISWA</div>", unsafe_allow_html=True)
+    
+    if not df_jft.empty:
+        bulan_col = next((c for c in df_jft.columns if any(k in c.lower() for k in ["bulan", "month"])), None)
+        tahun_col = next((c for c in df_jft.columns if any(k in c.lower() for k in ["tahun", "year"])), None)
         
-        components.html(html_raport, height=1350, scrolling=True)
+        st.markdown("#### 🔍 Filter JFT Siswa (Bulan & Tahun)")
+        f_j1, f_j2 = st.columns(2)
+        
+        list_bulan = sorted([str(x) for x in df_jft[bulan_col].dropna().unique() if str(x).strip() not in ["nan", ""]]) if bulan_col else ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        list_tahun = sorted([str(x) for x in df_jft[tahun_col].dropna().unique() if str(x).strip() not in ["nan", ""]]) if tahun_col else ["2025", "2026"]
 
-# ================= MENU 4: DATABASE =================
-elif menu == "📂 Database":
-  st.markdown("<div class='main-heading'>DATABASE PESERTA LPK YUTAKA</div>", unsafe_allow_html=True)
-  if not df.empty:
-    st.markdown("<p style='font-size:12px; color:#64748b;'>Menampilkan seluruh rekam data nilai dari Google Sheets.</p>", unsafe_allow_html=True)
-    st.dataframe(df, use_container_width=True)
+        with f_j1: pilih_bln = st.selectbox("Pilih Bulan:", ["Semua Bulan"] + list_bulan)
+        with f_j2: pilih_thn = st.selectbox("Pilih Tahun:", ["Semua Tahun"] + list_tahun)
 
-# ================= MENU 5: UPLOAD / UNDUH =================
+        df_jft_view = df_jft.copy()
+        if pilih_bln != "Semua Bulan" and bulan_col: 
+            df_jft_view = df_jft_view[df_jft_view[bulan_col].astype(str) == pilih_bln]
+        if pilih_thn != "Semua Tahun" and tahun_col: 
+            df_jft_view = df_jft_view[df_jft_view[tahun_col].astype(str) == pilih_thn]
+
+        if bulan_col and not df_jft.empty:
+            pie_data = df_jft_view[bulan_col].astype(str).value_counts().reset_index()
+            pie_data.columns = ["Bulan", "Jumlah"]
+            
+            fig_pie = px.pie(pie_data, names="Bulan", values="Jumlah", hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+            fig_pie.update_traces(textinfo='percent+label', textfont_size=14)
+            fig_pie.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("<div style='font-size:16px; font-weight:700; color:#be185d; margin-bottom:4px;'>📂 Database JFT Siswa</div>", unsafe_allow_html=True)
+        st.dataframe(df_jft_view, use_container_width=True)
+    else:
+        st.warning("⚠️ Data JFT Siswa belum tersedia.")
+
+# ================= MENU 4: UPLOAD & UNDUH =================
 elif menu == "📤 Upload/Unduh":
-  st.markdown("<div class='main-heading'>UPLOAD & DOWNLOAD DATA</div>", unsafe_allow_html=True)
-  if not df.empty:
-    st.download_button(
-        label="📥 DOWNLOAD REKAP LENGKAP (EXCEL)",
-        data=to_excel_bytes(df),
-        file_name="laporan_lpk_yutaka_lengkap.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    st.markdown("<div class='main-heading'>DOWNLOAD DATA REALTIME</div>", unsafe_allow_html=True)
+    if not df_akademik.empty:
+        st.download_button(
+            label="📥 DOWNLOAD REKAP LENGKAP (EXCEL)",
+            data=to_excel_bytes(df_akademik),
+            file_name="laporan_lpk_yutaka_realtime.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    else:
+        st.warning("⚠️ Tidak ada data untuk diunduh.")
